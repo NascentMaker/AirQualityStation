@@ -1,0 +1,35 @@
+<component name="InspectionProjectProfileManager">
+  <profile version="1.0">
+    <option name="myName" value="Project Default" />
+    <inspection_tool class="PyPackageRequirementsInspection" enabled="true" level="WARNING" enabled_by_default="true">
+      <option name="ignoredPackages">
+        <value>
+          <list size="15">
+            <item index="0" class="java.lang.String" itemvalue="adafruit_miniqr" />
+            <item index="1" class="java.lang.String" itemvalue="adafruit_pixelbuf" />
+            <item index="2" class="java.lang.String" itemvalue="adafruit_bus_device" />
+            <item index="3" class="java.lang.String" itemvalue="adafruit_display_shapes" />
+            <item index="4" class="java.lang.String" itemvalue="adafruit_requests" />
+            <item index="5" class="java.lang.String" itemvalue="adafruit_io" />
+            <item index="6" class="java.lang.String" itemvalue="adafruit_portalbase" />
+            <item index="7" class="java.lang.String" itemvalue="simpleio" />
+            <item index="8" class="java.lang.String" itemvalue="adafruit_esp32spi" />
+            <item index="9" class="java.lang.String" itemvalue="neopixel" />
+            <item index="10" class="java.lang.String" itemvalue="adafruit_oauth2" />
+            <item index="11" class="java.lang.String" itemvalue="adafruit_fakerequests" />
+            <item index="12" class="java.lang.String" itemvalue="adafruit_display_text" />
+            <item index="13" class="java.lang.String" itemvalue="adafruit_magtag" />
+            <item index="14" class="java.lang.String" itemvalue="adafruit_bitmap_font" />
+          </list>
+        </value>
+      </option>
+    </inspection_tool>
+    <inspection_tool class="PyPep8Inspection" enabled="true" level="WEAK WARNING" enabled_by_default="true">
+      <option name="ignoredErrors">
+        <list>
+          <option value="E501" />
+        </list>
+      </option>
+    </inspection_tool>
+  </profile>
+</component>
