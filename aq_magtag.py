@@ -6,7 +6,6 @@ import time
 import adafruit_pm25
 import alarm
 import board
-import busio
 import gc
 import rtc
 from adafruit_bitmap_font import bitmap_font
@@ -16,6 +15,7 @@ from adafruit_bitmap_font.ttf import TTF
 from adafruit_display_text import label
 from adafruit_magtag.magtag import MagTag
 from adafruit_pm25.i2c import PM25_I2C
+import adafruit_sht31d
 
 from constants import (
     REFRESH_TIME,
@@ -76,7 +76,10 @@ class AqMagTag:
     _received_pin_alarm: bool = False
     _rtc: rtc.RTC = None
     _secrets: dict = {}
+    _sht31d = None
     _stats_font: [BDF, PCF, TTF] = None
+    _temperature: float = 0
+    _relative_humidity: float = 0
 
     # public properties
     initialized: bool = False
@@ -97,8 +100,8 @@ class AqMagTag:
         self._setup_alarms()
         self._setup_magtag()
         self._handle_alarms()
-        self._check_battery()
         self._setup_sensors()
+        self._check_battery()
         self._load_fonts()
         self._setup_labels()
         self.initialized = True
@@ -178,12 +181,31 @@ class AqMagTag:
                 self._magtag.peripherals.play_tone(2600, 0.1)
                 time.sleep(0.2)
 
+    def _setup_sensors(self) -> None:
+        """
+        Set up connections to our sensors.
+        """
+        # Set up I2C
+        if not self._i2c:
+            self._i2c = board.I2C()
+        if self._debug:
+            print('Connect PM25 sensor via I2C... ', end='')
+        # Set up PM25_I2C sensor
+        self._pm25 = PM25_I2C(self._i2c, None)
+        if self._debug:
+            print('OK')
+        if self._debug:
+            print('Connect SHT31D sensor via I2C... ', end='')
+        self._sht31d = adafruit_sht31d.SHT31D(self._i2c)
+        if self._debug:
+            print('OK')
+
     def _setup_magtag(self) -> None:
         """
         Set up the MagTag itself. This is the heart of our system.
         """
         # Create a new MagTag object
-        self._magtag = MagTag(default_bg=0xFFFFFF, debug=True)
+        self._magtag = MagTag(default_bg=0xFFFFFF, debug=self._debug or self._debug_display)
         # noinspection PyProtectedMember
         self._secrets = self._magtag.network._secrets
         # Default configuration for MagTag
@@ -192,20 +214,6 @@ class AqMagTag:
         # Set up the Real Time Clock
         self._rtc = rtc.RTC()
         self._magtag.peripherals.neopixels[0] = (0, 40, 0)
-
-    def _setup_sensors(self) -> None:
-        """
-        Set up connections to our sensors.
-        """
-        # Set up I2C
-        if not self._i2c:
-            self._i2c = busio.I2C(board.SCL, board.SDA, frequency=100000)
-        if self._debug:
-            print('Connect PM25 sensor via I2C... ', end='')
-        # Set up PM25_I2C sensor
-        self._pm25 = PM25_I2C(self._i2c, None)
-        if self._debug:
-            print('OK')
 
     def _load_fonts(self) -> None:
         """
@@ -249,6 +257,9 @@ class AqMagTag:
     def deep_sleep(self, backoff: bool = False) -> None:
         """
         Power down non-critical systems and enter deep sleep.
+
+        Args:
+            backoff: if True, then we use an exponential backoff strategy
         """
         self._magtag.peripherals.neopixel_disable = True
         self._magtag.peripherals.speaker_disable = True
@@ -312,10 +323,11 @@ class AqMagTag:
         time.sleep(3)
 
         self._magtag.peripherals.neopixels[0] = 0
+        gc.collect()
 
-    def process_events(self) -> None:
+    def get_pm25_measurements(self) -> []:
         """
-        Process events. Call this from the main loop of your `code.py` file.
+        Get a number of measurements over time to get an average from the instrument.
         """
         measurements = []
         failed_readings = 0
@@ -341,42 +353,99 @@ class AqMagTag:
         if self._debug:
             print("OK")
 
-        totals = {}
+        gc.collect()
 
-        self._magtag.peripherals.neopixels[0] = (0, 80, 0)
+        return measurements
 
+    def get_pm25_averages(self, measurements: []):
+        """
+        Get the average from the collected measurements.
+        """
+        pm25_averages = {}
         if measurements and len(measurements):
             columns = measurements[0].keys()
             for column in columns:
                 feed_key = column.replace(' ', '-')
-                totals[feed_key] = sum(i[column] for i in measurements) / len(measurements)
+                pm25_averages[feed_key] = sum(i[column] for i in measurements) / len(measurements)
                 if not self._debug:
-                    print(f'Push {feed_key} to Adafruit IO... ', end='')
+                    self.push_to_io(feed_key=f'air-quality-office.{feed_key}', metadata={}, data=pm25_averages[feed_key], precision=2)
+        gc.collect()
+        return pm25_averages
+
+    def push_to_io(self, feed_key: str, metadata: any, data: any, precision=0) -> bool:
+        """Push data to Adafruit IO.
+
+        Includes rudimentary protection against API failures.
+
+        Args:
+            feed_key:
+            metadata:
+            data:
+            precision:
+
+        Returns:
+            True or False indicate success.
+        """
+        failed_push = False
+        if not self._debug:
+            if self._debug:
+                print(f'Push {feed_key} to Adafruit IO... ', end='')
+            for x in range(3):
+                try:
                     # TODO: Fix neopixels aren't working when pushing to feed
                     #       For some reason this isn't working while the MagTag is also pushing out
                     #       stats to the Adafruit IO API. Gotta be a way to have that light blink.
                     self._magtag.peripherals.neopixels[1] = (255, 0, 255)
                     time.sleep(0.25)
                     self._magtag.peripherals.neopixels[1] = (0, 255, 255)
+                    self._magtag.push_to_io(feed_key=feed_key, metadata=metadata, data=data, precision=precision)
                     failed_push = False
-                    for x in range(3):
-                        try:
-                            self._magtag.push_to_io(feed_key=feed_key, metadata={}, data=totals[feed_key], precision=2)
-                            failed_push = False
-                            break
-                        except RuntimeError:
-                            failed_push = True
-                            continue
-                    print('FAIL' if failed_push else 'OK')
+                    break
+                except RuntimeError:
+                    failed_push = True
+                    time.sleep(1)
+                    continue
+            if self._debug:
+                print('FAIL' if failed_push else 'OK')
+        return failed_push
 
+    def get_sht31d_readings(self):
+        try:
+            self._temperature = self._sht31d.temperature
+            self._relative_humidity = self._sht31d.relative_humidity
+        except OSError:
+            return False
+
+        success = True
+        success & self.push_to_io(
+            feed_key='air-quality-office.temperature-c',
+            metadata={},
+            data=self._temperature,
+            precision=1,
+        )
+        success & self.push_to_io(
+            feed_key='air-quality-office.relative-humidity',
+            metadata={},
+            data=self._relative_humidity,
+            precision=1,
+        )
+        return success
+
+    def process_events(self) -> None:
+        """
+        Process events. Call this from the main loop of your `code.py` file.
+        """
+        self.get_sht31d_readings()
+        self._magtag.peripherals.neopixels[1] = (0, 80, 0)
+        pm25_averages = self.get_pm25_averages(self.get_pm25_measurements())
         self._magtag.peripherals.neopixels[1] = (0, 80, 0)
 
-        self._pm10value_label.text = f'{totals["pm10-standard"]:.0f}'
-        self._pm25value_label.text = f'{totals["pm25-standard"]:.0f}'
-        self._pm100value_label.text = f'{totals["pm100-standard"]:.0f}'
+        self._pm10value_label.text = f'{pm25_averages["pm10-standard"]:.0f}'
+        self._pm25value_label.text = f'{pm25_averages["pm25-standard"]:.0f}'
+        self._pm100value_label.text = f'{pm25_averages["pm100-standard"]:.0f}'
 
-        stats = f'0.3µm/0.1L: {totals["particles-03um"]:.1f}, 0.5µm/0.1L: {totals["particles-05um"]:.1f}, 1.0µm/0.1L: {totals["particles-10um"]:.1f}\n'
-        stats += f'2.5µm/0.1L: {totals["particles-25um"]:.1f}, 5.0µm/0.1L: {totals["particles-50um"]:.1f}, 10µm/0.1L: {totals["particles-100um"]:.1f}'
+        stats = f'0.3µm/0.1L: {pm25_averages["particles-03um"]:.1f}, 0.5µm/0.1L: {pm25_averages["particles-05um"]:.1f}, 1.0µm/0.1L: {pm25_averages["particles-10um"]:.1f}\n'
+        stats += f'2.5µm/0.1L: {pm25_averages["particles-25um"]:.1f}, 5.0µm/0.1L: {pm25_averages["particles-50um"]:.1f}, 10µm/0.1L: {pm25_averages["particles-100um"]:.1f}'
 
         self._stats_label.text = stats
 
@@ -385,7 +454,7 @@ class AqMagTag:
 
         if self._debug:
             from debug import print_particle_values
-            print_particle_values(totals)
+            print_particle_values(pm25_averages)
 
         clear_backoff()
         self.deep_sleep()

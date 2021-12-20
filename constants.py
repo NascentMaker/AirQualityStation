@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Unlicense
 
 # Amount of time to wait between refreshing the sensor data, in minutes
-REFRESH_TIME = 10
+REFRESH_TIME = 3
 
 # Constants used in sleep_memory to indicate error
 SLEEP_MEMORY_SLOT_PIN_ALARM = 0
