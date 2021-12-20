@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2021 Torgny Bjers
+#
+# SPDX-License-Identifier: Unlicense
 import random
 import time
 

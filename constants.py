@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2021 Torgny Bjers
+#
+# SPDX-License-Identifier: Unlicense
+
 # Amount of time to wait between refreshing the sensor data, in minutes
 REFRESH_TIME = 10
 
