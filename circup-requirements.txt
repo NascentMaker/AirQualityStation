@@ -1,0 +1,14 @@
+adafruit_datetime==1.1.5
+adafruit_fakerequests==1.0.5
+adafruit_requests==1.10.2
+neopixel==6.2.3
+simpleio==3.0.2
+adafruit_sht31d==2.3.7
+adafruit_bitmap_font==1.5.3
+adafruit_bus_device==5.1.1
+adafruit_display_text==2.21.1
+adafruit_imageload==1.15.3
+adafruit_magtag==2.1.5
+adafruit_portalbase==1.10.0
+adafruit_pm25==2.1.6
+adafruit_io==5.6.0
