@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: 2021 Torgny Bjers
 #
 # SPDX-License-Identifier: Unlicense
+import gc
 import random
 import time
 
@@ -27,6 +28,8 @@ def print_particle_values(totals):
     print("Particles > 5.0µm / 0.1L air:", totals["particles-50um"])
     print("Particles > 10 µm / 0.1L air:", totals["particles-100um"])
     print("---------------------------------------")
+    if gc.isenabled():
+        gc.collect()
 
 
 def test_display_layout(board, magtag, pm10value_label, pm25value_label, pm100value_label, stats_label):
@@ -38,5 +41,7 @@ def test_display_layout(board, magtag, pm10value_label, pm25value_label, pm100va
     stats_label.text = f'0.3µm/0.1L: {random.randint(120, 500)}'
     board.DISPLAY.show(magtag.splash)
     board.DISPLAY.refresh()
+    if gc.isenabled():
+        gc.collect()
     while True:
         pass

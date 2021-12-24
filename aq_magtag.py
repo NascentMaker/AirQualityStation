@@ -1,12 +1,14 @@
 # SPDX-FileCopyrightText: 2021 Torgny Bjers
 #
 # SPDX-License-Identifier: Unlicense
+import gc
 import time
 
 import adafruit_pm25
+import adafruit_sht31d
 import alarm
 import board
-import gc
+import digitalio
 import rtc
 from adafruit_bitmap_font import bitmap_font
 from adafruit_bitmap_font.bdf import BDF
@@ -15,16 +17,16 @@ from adafruit_bitmap_font.ttf import TTF
 from adafruit_display_text import label
 from adafruit_magtag.magtag import MagTag
 from adafruit_pm25.i2c import PM25_I2C
-import adafruit_sht31d
 
 from constants import (
-    REFRESH_TIME,
     MAXIMUM_BACKOFF,
-    SLEEP_MEMORY_SLOT_BACKOFF_TIMES,
-    SLEEP_MEMORY_SLOT_BACKOFF,
-    SLEEP_MEMORY_SLOT_PIN_ALARM,
-    MINIMUM_BACKOFF,
     MAX_BACKOFF_COUNT,
+    MINIMUM_BACKOFF,
+    PM25_SENSOR_WARMUP_SECONDS,
+    PM25_STANDBY_PIN,
+    REFRESH_TIME,
+    SLEEP_MEMORY_SLOT_BACKOFF,
+    SLEEP_MEMORY_SLOT_BACKOFF_TIMES,
 )
 
 
@@ -73,13 +75,13 @@ class AqMagTag:
     _numbers_font: [BDF, PCF, TTF] = None
     _pin = None
     _pm25: adafruit_pm25.PM25 = None
-    _received_pin_alarm: bool = False
+    _pm25_standby_pin: digitalio.DigitalInOut = None
+    _relative_humidity: float = 0
     _rtc: rtc.RTC = None
     _secrets: dict = {}
     _sht31d = None
     _stats_font: [BDF, PCF, TTF] = None
     _temperature: float = 0
-    _relative_humidity: float = 0
 
     # public properties
     initialized: bool = False
@@ -97,7 +99,9 @@ class AqMagTag:
         """
         if self.initialized:
             return
+        print('Start setup.')
         self._setup_alarms()
+        self._setup_digital_pins()
         self._setup_magtag()
         self._handle_alarms()
         self._setup_sensors()
@@ -105,6 +109,7 @@ class AqMagTag:
         self._load_fonts()
         self._setup_labels()
         self.initialized = True
+        print('Setup complete.')
 
     def _setup_alarms(self) -> None:
         """
@@ -114,7 +119,29 @@ class AqMagTag:
             print('Setting up alarms... ', end='')
         # Set up alarms for the different buttons and timer
         self.pin_alarm = alarm.pin.PinAlarm(board.D14, value=False)
-        self.time_alarm = alarm.time.TimeAlarm(monotonic_time=int(time.monotonic()) + (REFRESH_TIME * 60))
+        self.time_alarm = alarm.time.TimeAlarm(monotonic_time=int(time.monotonic()) + REFRESH_TIME)
+        if self._debug:
+            print('OK')
+
+    def _setup_digital_pins(self) -> None:
+        if isinstance(alarm.wake_alarm, alarm.pin.PinAlarm):
+            return
+
+        # Set up I2C
+        if not self._i2c:
+            self._i2c = board.I2C()
+        if self._debug:
+            print('Setting up standby digital pin for PM25... ', end='')
+        self._pm25_standby_pin = digitalio.DigitalInOut(PM25_STANDBY_PIN)
+        self._pm25_standby_pin.switch_to_output()
+        time.sleep(0.1)
+        self._pm25_standby_pin.value = True
+        if self._debug:
+            print('OK')
+            print('Waiting for sensor to warm up... ', end='')
+        else:
+            print(f'Waiting {PM25_SENSOR_WARMUP_SECONDS} seconds for PM25 sensor.')
+        time.sleep(PM25_SENSOR_WARMUP_SECONDS or 30)
         if self._debug:
             print('OK')
 
@@ -122,29 +149,14 @@ class AqMagTag:
         """
         Determine if alarms have been triggered. If so, process them.
         """
+        debug_messages = []
         if self._debug:
             print('Handle alarms... ', end='')
 
-        # TODO: Until the MagTag firmware is updated the MagTag has no idea of what
-        #       the alarm type is, because alarm.wake_alarm is None. Therefore we are
-        #       using a workaround in `boot.py` in order to properly type the alarm
-        #       and pass on which button was pressed.
-        #       Once the MagTag firmware is fixed, this whole stanza can be removed.
-        # Check to see if there's a Pin alarm stored in sleep memory
-        if alarm.sleep_memory[SLEEP_MEMORY_SLOT_PIN_ALARM]:
-            self._received_pin_alarm = True
-            # attempt to decode the pin
-            self._pin = getattr(board, dir(board)[alarm.sleep_memory[SLEEP_MEMORY_SLOT_PIN_ALARM]])
-            alarm.sleep_memory[SLEEP_MEMORY_SLOT_PIN_ALARM] = False
-
         # Check to see if the wake alarm is a pin alarm
         if isinstance(alarm.wake_alarm, alarm.pin.PinAlarm):
-            self._received_pin_alarm = True
             self._pin = alarm.wake_alarm.pin
-
-        # If we have received a pin alarm, handle it here
-        if self._received_pin_alarm:
-            print(f'Light level: {self._magtag.peripherals.light}')
+            debug_messages.append(str(self._pin))
             # Check what the light level is before we blind someone
             neopixel_brightness = 0.25
             if self._magtag.peripherals.light < 700:
@@ -153,19 +165,26 @@ class AqMagTag:
                 neopixel_brightness = 0.75
             if self._magtag.peripherals.light < 2000:
                 neopixel_brightness = 1
+            debug_messages.append(f'brightness = {neopixel_brightness}')
             self._magtag.peripherals.neopixel_disable = False
             self._magtag.peripherals.neopixels.brightness = neopixel_brightness
             self._magtag.peripherals.neopixels.fill((255, 255, 255))
             self._magtag.peripherals.neopixels.show()
+            if self._debug:
+                print('OK')
+                print('\n'.join(debug_messages))
             time.sleep(6)
             self.deep_sleep()
-        # If we have received a time alarm, proceed with boot.
-        elif alarm.wake_alarm:
+        elif isinstance(alarm.wake_alarm, alarm.time.TimeAlarm):
+            # If we have received a time alarm, proceed with boot.
             for i in range(4):
                 time.sleep(0.5)
                 self._magtag.peripherals.neopixels[0] = (255, 255, 0)
                 time.sleep(0.25)
                 self._magtag.peripherals.neopixels[0] = (0, 0, 0)
+        elif not alarm.wake_alarm:
+            self._magtag.set_background(0x666666)
+            board.DISPLAY.refresh()
 
         if self._debug:
             print('OK')
@@ -175,8 +194,7 @@ class AqMagTag:
         Check the battery level, if it's low, play a tone.
         """
         if self._magtag.peripherals.battery < 3.5:
-            if self._debug:
-                print(f'Battery voltage at {self._magtag.peripherals.battery}, need to charge.')
+            print(f'Battery voltage at {self._magtag.peripherals.battery}, need to charge.')
             for i in range(3):
                 self._magtag.peripherals.play_tone(2600, 0.1)
                 time.sleep(0.2)
@@ -185,11 +203,10 @@ class AqMagTag:
         """
         Set up connections to our sensors.
         """
-        # Set up I2C
-        if not self._i2c:
-            self._i2c = board.I2C()
         if self._debug:
             print('Connect PM25 sensor via I2C... ', end='')
+        else:
+            print('Set up sensors.')
         # Set up PM25_I2C sensor
         self._pm25 = PM25_I2C(self._i2c, None)
         if self._debug:
@@ -214,6 +231,7 @@ class AqMagTag:
         # Set up the Real Time Clock
         self._rtc = rtc.RTC()
         self._magtag.peripherals.neopixels[0] = (0, 40, 0)
+        print(f'Battery at {self._magtag.peripherals.battery} volt.')
 
     def _load_fonts(self) -> None:
         """
@@ -227,32 +245,60 @@ class AqMagTag:
         """
         Create the labels that we use to display information on the screen.
         """
-        self._pm10value_label = label.Label(self._numbers_font, color=0x000000, anchor_point=(0.5, 0.5),
-                                            anchored_position=(53, 35))
-        self._pm10label_label = label.Label(self._label_font, color=0x666666, text="PM 1.0", anchor_point=(0.5, 0.5),
-                                            anchored_position=(53, 70))
+        self._pm10value_label = label.Label(
+            self._numbers_font,
+            color=0x000000,
+            anchor_point=(0.5, 0.5),
+            anchored_position=(53, 35),
+        )
+        self._pm10label_label = label.Label(
+            self._label_font,
+            color=0x666666,
+            text="PM 1.0",
+            anchor_point=(0.5, 0.5),
+            anchored_position=(53, 70),
+        )
+        self._pm25value_label = label.Label(
+            self._numbers_font,
+            color=0x000000,
+            anchor_point=(0.5, 0.5),
+            anchored_position=(148, 35),
+        )
+        self._pm25label_label = label.Label(
+            self._label_font,
+            color=0x666666,
+            text="PM 2.5",
+            anchor_point=(0.5, 0.5),
+            anchored_position=(148, 70),
+        )
+        self._pm100value_label = label.Label(
+            self._numbers_font,
+            color=0x000000,
+            anchor_point=(0.5, 0.5),
+            anchored_position=(243, 35),
+        )
+        self._pm100label_label = label.Label(
+            self._label_font,
+            color=0x666666,
+            text="PM 10",
+            anchor_point=(0.5, 0.5),
+            anchored_position=(243, 70),
+        )
+        self._stats_label = label.Label(
+            self._stats_font,
+            color=0x000000,
+            anchor_point=(0, 0),
+            anchored_position=(12, 100),
+        )
         self._magtag.splash.append(self._pm10value_label)
         self._magtag.splash.append(self._pm10label_label)
-
-        self._pm25value_label = label.Label(self._numbers_font, color=0x000000, anchor_point=(0.5, 0.5),
-                                            anchored_position=(148, 35))
-        self._pm25label_label = label.Label(self._label_font, color=0x666666, text="PM 2.5", anchor_point=(0.5, 0.5),
-                                            anchored_position=(148, 70))
         self._magtag.splash.append(self._pm25value_label)
         self._magtag.splash.append(self._pm25label_label)
-
-        self._pm100value_label = label.Label(self._numbers_font, color=0x000000, anchor_point=(0.5, 0.5),
-                                             anchored_position=(243, 35))
-        self._pm100label_label = label.Label(self._label_font, color=0x666666, text="PM 10", anchor_point=(0.5, 0.5),
-                                             anchored_position=(243, 70))
         self._magtag.splash.append(self._pm100value_label)
         self._magtag.splash.append(self._pm100label_label)
-
-        self._stats_label = label.Label(self._stats_font, color=0x000000, anchor_point=(0, 0),
-                                        anchored_position=(12, 100))
         self._magtag.splash.append(self._stats_label)
-
-        gc.collect()
+        if gc.isenabled():
+            gc.collect()
 
     def deep_sleep(self, backoff: bool = False) -> None:
         """
@@ -263,13 +309,16 @@ class AqMagTag:
         """
         self._magtag.peripherals.neopixel_disable = True
         self._magtag.peripherals.speaker_disable = True
+        if not isinstance(alarm.wake_alarm, alarm.pin.PinAlarm):
+            self._pm25_standby_pin.value = False
         if backoff:
             sleep_length = alarm.sleep_memory[SLEEP_MEMORY_SLOT_BACKOFF]
             print(f'ERROR, EXPONENTIAL BACKOFF: Sleeping for {sleep_length} seconds.')
             backoff_alarm = alarm.time.TimeAlarm(monotonic_time=int(time.monotonic()) + sleep_length)
             alarm.exit_and_deep_sleep_until_alarms(backoff_alarm)
-        print(f'Sleeping for {REFRESH_TIME:d} minutes')
-        gc.collect()
+        print(f'Sleeping for {REFRESH_TIME:d} seconds')
+        if gc.isenabled():
+            gc.collect()
         alarm.exit_and_deep_sleep_until_alarms(self.pin_alarm, self.time_alarm)
 
     def deep_sleep_exponential_backoff(self) -> None:
@@ -323,7 +372,8 @@ class AqMagTag:
         time.sleep(3)
 
         self._magtag.peripherals.neopixels[0] = 0
-        gc.collect()
+        if gc.isenabled():
+            gc.collect()
 
     def get_pm25_measurements(self) -> []:
         """
@@ -353,7 +403,8 @@ class AqMagTag:
         if self._debug:
             print("OK")
 
-        gc.collect()
+        if gc.isenabled():
+            gc.collect()
 
         return measurements
 
@@ -368,8 +419,10 @@ class AqMagTag:
                 feed_key = column.replace(' ', '-')
                 pm25_averages[feed_key] = sum(i[column] for i in measurements) / len(measurements)
                 if not self._debug:
-                    self.push_to_io(feed_key=f'air-quality-office.{feed_key}', metadata={}, data=pm25_averages[feed_key], precision=2)
-        gc.collect()
+                    self.push_to_io(feed_key=f'air-quality-office.{feed_key}', metadata={},
+                                    data=pm25_averages[feed_key], precision=2)
+        if gc.isenabled():
+            gc.collect()
         return pm25_averages
 
     def push_to_io(self, feed_key: str, metadata: any, data: any, precision=0) -> bool:
@@ -387,9 +440,10 @@ class AqMagTag:
             True or False indicate success.
         """
         failed_push = False
-        if not self._debug:
-            if self._debug:
-                print(f'Push {feed_key} to Adafruit IO... ', end='')
+        if self._debug:
+            print('Cowardly refusing to push data to Adafruit IO in debug mode.')
+        else:
+            print(f'Push {feed_key} to Adafruit IO... ', end='')
             for x in range(3):
                 try:
                     # TODO: Fix neopixels aren't working when pushing to feed
@@ -405,8 +459,7 @@ class AqMagTag:
                     failed_push = True
                     time.sleep(1)
                     continue
-            if self._debug:
-                print('FAIL' if failed_push else 'OK')
+            print('FAIL' if failed_push else 'OK')
         return failed_push
 
     def get_sht31d_readings(self):
@@ -435,6 +488,8 @@ class AqMagTag:
         """
         Process events. Call this from the main loop of your `code.py` file.
         """
+        self._magtag.set_background(0xFFFFFF)
+
         self.get_sht31d_readings()
         self._magtag.peripherals.neopixels[1] = (0, 80, 0)
         pm25_averages = self.get_pm25_averages(self.get_pm25_measurements())
