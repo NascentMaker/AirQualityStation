@@ -12,3 +12,4 @@ adafruit_magtag==2.1.5
 adafruit_portalbase==1.10.0
 adafruit_pm25==2.1.6
 adafruit_io==5.6.0
+adafruit_logging==3.7.3
