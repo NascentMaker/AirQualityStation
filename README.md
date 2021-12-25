@@ -10,6 +10,13 @@ connectors of the MagTag and the PM25 sensor.
  - [Adafruit PMSA003I Air Quality Breakout - STEMMA QT / Qwiic][adafruit_pmsa003i]
  - [Adafruit Sensirion SHT31-D - Temperature & Humidity Sensor][adafruit_sht31d]
 
+## Installation
+
+There are a few options for how to use this project:
+
+ - Download `aq_magtag.mpy` and place it in your `lib/` directory.
+ - Clone or download this repository and use it like a normal PyCharm project.
+
 ## Licenses
 
 For information regarding the licenses of fonts, please see:
