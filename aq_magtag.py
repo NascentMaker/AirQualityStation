@@ -20,6 +20,7 @@ from adafruit_bitmap_font.ttf import TTF
 from adafruit_display_text import label
 from adafruit_magtag.magtag import MagTag
 from adafruit_pm25.i2c import PM25_I2C
+from adafruit_lc709203f import LC709203F
 
 from constants import (
     MAXIMUM_BACKOFF,
@@ -70,6 +71,7 @@ class AqMagTag:
     # private properties
     _alarm_pin: microcontroller.Pin = None
     _alarm_triggered: bool = False
+    _battery_sensor: LC709203F = None
     _connect_tries: int = 0
     _connected: bool = False
     _debug: bool = False
@@ -215,6 +217,7 @@ class AqMagTag:
         self.log.info('Connected PM25 sensor via I2C.')
         self._sht31d = adafruit_sht31d.SHT31D(self._i2c)
         self.log.info('Connected SHT31D sensor via I2C.')
+        self._battery_sensor = LC709203F(self._i2c)
 
     def _setup_magtag(self) -> None:
         """
@@ -493,9 +496,15 @@ class AqMagTag:
 
         if not self._debug:
             self.push_to_io(
+                feed_key='air-quality-office.battery-percentage',
+                metadata={},
+                data=self._battery_sensor.cell_percent,
+                precision=2,
+            )
+            self.push_to_io(
                 feed_key='air-quality-office.battery-voltage',
                 metadata={},
-                data=self._magtag.peripherals.battery,
+                data=self._battery_sensor.cell_voltage,
                 precision=2,
             )
 
