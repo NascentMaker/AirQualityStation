@@ -34,11 +34,3 @@ jobs:
     - name: Cross-compile for MicroPython
       run: |
         mpy-cross aq_magtag.py
-    - uses: zwaldowski/git-commit-action@v1
-      with:
-        working_directory: .
-        commit_message: Automated Cross-compile
-    - uses: ad-m/github-push-action@v0.6.0
-      with:
-        github_token: $\{{ secrets.GITHUB_TOKEN }}
-        branch: main
