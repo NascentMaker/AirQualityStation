@@ -1,6 +1,6 @@
 # MagTag Air Quality Station
 
-[![release](https://github.com/NascentMaker/AirQualityStation/actions/workflows/release.yml/badge.svg)](https://github.com/NascentMaker/AirQualityStation/actions/workflows/release.yml)
+![GitHub release (latest by date)](https://img.shields.io/github/v/release/NascentMaker/AirQualityStation)
 
 This application was designed to run on an Adafruit MagTag together with the
 PLANTOWER PM25 sensor breakout. This particular guide utilizes the Stemma QT
