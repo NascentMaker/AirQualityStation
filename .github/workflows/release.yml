@@ -2,9 +2,8 @@ name: release
 
 on:
   push:
-    branches: [ main ]
-    paths-ignore:
-      - 'README.md'
+    tags:
+      - "v*.*.*"
 
 jobs:
   crosscompile:
@@ -30,11 +29,12 @@ jobs:
         flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
     - name: Cross-compile for MicroPython
       run: |
-        mpy-cross aq_magtag.py    - uses: zwaldowski/git-commit-action@v1
+        mpy-cross aq_magtag.py
+    - name: Release
+      uses: softprops/action-gh-release@v0.1.14
       with:
-        working_directory: .
-        commit_message: Automated Cross-compile
-    - uses: ad-m/github-push-action@v0.6.0
-      with:
-        github_token: $\{{ secrets.GITHUB_TOKEN }}
-        branch: main
+        generate_release_notes: true
+        fail_on_unmatched_files: true
+        files: |
+          LICENSE
+          aq_magtag.mpy
