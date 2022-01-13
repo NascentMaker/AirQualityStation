@@ -7,7 +7,6 @@ on:
 
 jobs:
   crosscompile:
-    needs: build
     runs-on: ubuntu-latest
 
     steps:
