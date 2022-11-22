@@ -22,5 +22,5 @@ Adafruit-PlatformDetect==3.18.0
 Adafruit-PureIO==1.1.9
 circuitpython-stubs==7.1.0b3
 adafruit_circuitpython-lc709203f==2.2.0
-numpy==1.21.5
+numpy==1.22.0
 Pillow==9.3.0
