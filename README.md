@@ -26,7 +26,11 @@ For information regarding the licenses of fonts, please see:
 
  - [Tamzen license][tamzen]
  - [Fredoka One license][fredoka]
- 
+
+---
+
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/S6S7GJUG3)
+
 [tamzen]: https://github.com/sunaku/tamzen-font/blob/master/LICENSE
 [fredoka]: https://fonts.google.com/specimen/Fredoka+One#license
 [adafruit_magtag]: https://www.adafruit.com/product/4819
